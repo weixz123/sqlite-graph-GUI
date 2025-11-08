@@ -160,7 +160,7 @@ def update_node(node_id):
 def delete_node(node_id):
     """删除节点"""
     try:
-        db.atomic(GRAPH_DB_PATH, db.delete_node(node_id))
+        db.atomic(GRAPH_DB_PATH, db.remove_node(node_id))
         if query_system:
             query_system.get_all_nodes_with_embeddings(force_reload=True)
         return jsonify({"message": f"节点 {node_id} 删除成功"})

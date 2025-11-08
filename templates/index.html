@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>航空知识图谱查询系统</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+        }
+        #header {
+            background-color: #003366;
+            color: white;
+            padding: 15px 20px;
+            font-size: 1.8em;
+            font-weight: bold;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        #controls-panel {
+            width: 320px;
+            padding: 0;
+            background-color: #ffffff;
+            border-right: 1px solid #ddd;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+        }
+        #graph-container {
+            flex: 1;
+            position: relative;
+            background-color: #f7f9fc;
+        }
+        #graph {
+            width: 100%;
+            height: 100%;
+        }
+        .control-group {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        .control-group:last-child {
+            border-bottom: none;
+        }
+        label {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 8px;
+            display: block;
+        }
+        input[type="text"], input[type="number"], textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+        input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 5px rgba(0, 123, 255, 0.25);
+            outline: none;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        button {
+            display: block;
+            width: calc(100% - 30px);
+            margin: 15px;
+            padding: 12px 15px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            font-size: 1.1em;
+            font-weight: bold;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+        button:hover {
+            background-color: #0056b3;
+            transform: translateY(-2px);
+        }
+        #delete-node-button {
+            background-color: #dc3545;
+        }
+        #delete-node-button:hover {
+            background-color: #c82333;
+        }
+        #loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #007bff;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1.5s linear infinite;
+            display: none;
+            z-index: 10;
+        }
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+        .slider-value {
+            text-align: right;
+            color: #007bff;
+            font-weight: bold;
+            font-size: 1em;
+        }
+        .tab-buttons {
+            display: flex;
+            background-color: #f0f2f5;
+        }
+        .tab-button {
+            flex: 1;
+            padding: 15px;
+            background: transparent;
+            border: none;
+            border-bottom: 4px solid transparent;
+            cursor: pointer;
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #555;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .tab-button.active {
+            border-bottom: 4px solid #007bff;
+            color: #007bff;
+            background: #fff;
+        }
+        .tab-content {
+            display: none;
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="header">航空知识图谱交互式查询系统</div>
+
+    <div id="main-container">
+        <div id="controls-panel">
+            <div class="tab-buttons">
+                <button class="tab-button active" onclick="openTab(event, 'search-tab')">查询</button>
+                <button class="tab-button" onclick="openTab(event, 'edit-tab')">编辑</button>
+            </div>
+
+            <!-- 查询面板 -->
+            <div id="search-tab" class="tab-content active">
+                <div class="control-group">
+                    <label for="search-query">语义相似度查询</label>
+                    <input type="text" id="search-query" placeholder="例如: '飞行员疲劳管理'">
+                </div>
+                <div class="control-group">
+                    <label for="threshold">相似度阈值</label>
+                    <input type="range" id="threshold" min="0.1" max="1.0" step="0.05" value="0.5">
+                    <span id="threshold-value" class="slider-value">0.50</span>
+                </div>
+                <div class="control-group">
+                    <label for="n-hops">查询跳数 (n-hop)</label>
+                    <input type="range" id="n-hops" min="1" max="5" step="1" value="2">
+                    <span id="n-hops-value" class="slider-value">2</span>
+                </div>
+                 <div class="control-group">
+                    <label for="top-k">返回Top-K结果</label>
+                    <input type="range" id="top-k" min="1" max="10" step="1" value="3">
+                    <span id="top-k-value" class="slider-value">3</span>
+                </div>
+                <button id="search-button">执行查询</button>
+            </div>
+
+            <!-- 编辑面板 -->
+            <div id="edit-tab" class="tab-content">
+                <div class="control-group">
+                    <h4>添加/修改节点</h4>
+                    <label for="node-id">节点ID (留空为新增)</label>
+                    <input type="number" id="node-id" placeholder="例如: 123" readonly>
+                </div>
+                <div class="control-group">
+                    <label for="node-name">名称</label>
+                    <input type="text" id="node-name" placeholder="实体名称">
+                </div>
+                <div class="control-group">
+                    <label for="node-type">类型</label>
+                    <input type="text" id="node-type" placeholder="实体类型">
+                </div>
+                <div class="control-group">
+                    <label for="node-desc">描述</label>
+                    <textarea id="node-desc" rows="4" style="width:100%; resize: vertical;"></textarea>
+                </div>
+                <button id="save-node-button">保存节点</button>
+                <button id="delete-node-button">删除节点</button>
+            </div>
+        </div>
+
+        <div id="graph-container">
+            <div id="graph"></div>
+            <div id="loader"></div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        // DOM Elements
+        const searchButton = document.getElementById('search-button');
+        const searchQuery = document.getElementById('search-query');
+        const thresholdSlider = document.getElementById('threshold');
+        const nHopsSlider = document.getElementById('n-hops');
+        const topKSlider = document.getElementById('top-k');
+        const loader = document.getElementById('loader');
+
+        // Graph state
+        let network = null;
+        const allNodes = new vis.DataSet();
+        const allEdges = new vis.DataSet();
+
+        // Initialize Graph
+        function initGraph() {
+            const container = document.getElementById('graph');
+            const data = { nodes: allNodes, edges: allEdges };
+            const options = {
+                nodes: {
+                    shape: 'dot',
+                    size: 20,
+                    font: {
+                        size: 16,
+                        color: '#333'
+                    },
+                    borderWidth: 2,
+                    shadow: true
+                },
+                edges: {
+                    width: 2,
+                    smooth: {
+                        type: 'dynamic'
+                    },
+                    arrows: {
+                      to: { enabled: true, scaleFactor: 1, type: 'arrow' }
+                    }
+                },
+                physics: {
+                    enabled: true,
+                    solver: 'forceAtlas2Based',
+                    forceAtlas2Based: {
+                        gravitationalConstant: -80,
+                        centralGravity: 0.015,
+                        springLength: 120,
+                        springConstant: 0.08,
+                        avoidOverlap: 0.8
+                    }
+                },
+                interaction: {
+                    hover: true,
+                    dragNodes: true,
+                    zoomView: true,
+                    dragView: true,
+                    tooltipDelay: 200
+                },
+                layout: {
+                    improvedLayout: true,
+                },
+                groups: {
+                    query: {
+                        color: { background: '#ff4757', border: '#ff6b81' },
+                        shape: 'star',
+                        size: 25,
+                    }
+                }
+            };
+            network = new vis.Network(container, data, options);
+
+            network.on("click", function (params) {
+                if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    const node = allNodes.get(nodeId);
+                    if (node.group === 'query') return; // Don't allow editing the query node
+
+                    document.getElementById('node-id').value = node.id;
+                    document.getElementById('node-name').value = node.raw_data.name;
+                    document.getElementById('node-type').value = node.raw_data.type;
+                    document.getElementById('node-desc').value = node.raw_data.description;
+                    openTab(null, 'edit-tab');
+                }
+            });
+
+            network.on("doubleClick", function (params) {
+                if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    const node = allNodes.get(nodeId);
+                    if (node.group === 'query') return;
+
+                    if (node.isExpanded) {
+                        collapseNode(nodeId);
+                    } else {
+                        expandNode(nodeId);
+                    }
+                }
+            });
+        }
+
+        async function performSearch() {
+            const query = searchQuery.value;
+            if (!query) {
+                alert('请输入查询内容');
+                return;
+            }
+
+            loader.style.display = 'block';
+            try {
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: query,
+                        threshold: parseFloat(thresholdSlider.value),
+                        n_hops: parseInt(nHopsSlider.value),
+                        top_k: parseInt(topKSlider.value)
+                    })
+                });
+
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+                const graphData = await response.json();
+                
+                allNodes.clear();
+                allEdges.clear();
+
+                // Add query node
+                const queryNodeId = 'query_node';
+                allNodes.add({
+                    id: queryNodeId,
+                    label: `查询: "${query}"`,
+                    group: 'query',
+                    raw_data: { name: query, type: 'Query', description: '用户输入' }
+                });
+
+                // Add result nodes and edges
+                updateGraph(graphData, false);
+
+                // Add edges from query node to initial similar nodes
+                if (graphData.initial_nodes) {
+                    const queryEdges = Object.entries(graphData.initial_nodes).map(([nodeId, score]) => ({
+                        from: queryNodeId,
+                        to: parseInt(nodeId),
+                        label: `相似度: ${score.toFixed(2)}`,
+                        dashes: true,
+                        font: { align: 'top' },
+                        title: `与查询的相似度为 ${score.toFixed(2)}`
+                    }));
+                    allEdges.add(queryEdges);
+                }
+
+                network.fit();
+
+            } catch (error) {
+                console.error('查询失败:', error);
+                alert('查询失败，请查看控制台日志。');
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        function updateGraph(data, clearExisting = true) {
+            const newNodes = data.nodes
+                .filter(n => !allNodes.get(n.id)) // 过滤掉已存在的节点
+                .map(n => ({
+                    id: n.id,
+                    label: n.name,
+                    title: `<b>${n.name}</b><br>类型: ${n.type}<br>描述: ${n.description || 'N/A'}<br><br><i>双击展开/折叠</i>`,
+                    group: n.type,
+                    raw_data: n,
+                    isExpanded: false,
+                    _expandedFrom: n._expandedFrom || null
+                }));
+
+            const newEdges = data.edges
+                .map(e => {
+                    // 为边创建唯一ID，防止重复
+                    const edgeId = `s${e.source}-t${e.target}`;
+                    if (allEdges.get(edgeId)) return null; // 如果边已存在，则跳过
+                    return {
+                        id: edgeId,
+                        from: e.source,
+                        to: e.target,
+                        label: e.properties ? e.properties.type : '',
+                        title: e.properties ? e.properties.description : '',
+                        _expandedFrom: e._expandedFrom || null
+                    };
+                })
+                .filter(e => e !== null); // 过滤掉null值
+
+            if (clearExisting) {
+                allNodes.clear();
+                allEdges.clear();
+            }
+            
+            if (newNodes.length > 0) allNodes.update(newNodes);
+            if (newEdges.length > 0) allEdges.update(newEdges);
+        }
+
+        async function expandNode(nodeId) {
+            const node = allNodes.get(nodeId);
+            if (!node || node.isExpanded) return;
+
+            loader.style.display = 'block';
+            try {
+                const response = await fetch(`/api/neighbors/${nodeId}`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const newData = await response.json();
+                
+                const newNodes = newData.nodes.map(n => ({ ...n, _expandedFrom: nodeId }));
+                const newEdges = newData.edges.map(e => ({ ...e, _expandedFrom: nodeId }));
+
+                updateGraph({ nodes: newNodes, edges: newEdges }, false);
+                
+                allNodes.update({ id: nodeId, isExpanded: true, color: { background: '#f0ad4e' } });
+
+            } catch (error) {
+                console.error(`Failed to expand node ${nodeId}:`, error);
+                alert('展开节点失败');
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        function collapseNode(nodeId) {
+            const node = allNodes.get(nodeId);
+            if (!node || !node.isExpanded) return;
+
+            let nodesToRemove = new Set();
+            let edgesToRemove = new Set();
+            let nodesToProcess = [nodeId]; // 待处理的节点队列，从当前节点开始
+
+            while (nodesToProcess.length > 0) {
+                const currentId = nodesToProcess.shift();
+                
+                // 查找所有从当前节点扩展出的边
+                const expandedEdges = allEdges.get({
+                    filter: edge => edge._expandedFrom === currentId
+                });
+                expandedEdges.forEach(edge => edgesToRemove.add(edge.id));
+
+                // 查找所有从当前节点扩展出的节点
+                const expandedNodes = allNodes.get({
+                    filter: node => node._expandedFrom === currentId
+                });
+
+                expandedNodes.forEach(childNode => {
+                    // 只有当这个子节点没有被其他“未被删除”的边连接时，才将其移除
+                    const connectedEdges = network.getConnectedEdges(childNode.id);
+                    const isConnectedToKeptNode = connectedEdges.some(edgeId => !edgesToRemove.has(edgeId));
+
+                    if (!isConnectedToKeptNode) {
+                        nodesToRemove.add(childNode.id);
+                        // 如果这个子节点本身也是展开状态，则将其加入处理队列，进行递归折叠
+                        if (childNode.isExpanded) {
+                            nodesToProcess.push(childNode.id);
+                        }
+                    }
+                });
+            }
+
+            if (nodesToRemove.size > 0) allNodes.remove(Array.from(nodesToRemove));
+            if (edgesToRemove.size > 0) allEdges.remove(Array.from(edgesToRemove));
+            
+            // 更新当前节点的状态
+            allNodes.update({ id: nodeId, isExpanded: false, color: {} });
+        }
+
+        async function saveNode() {
+            const nodeId = document.getElementById('node-id').value;
+            const name = document.getElementById('node-name').value;
+            const type = document.getElementById('node-type').value;
+            const description = document.getElementById('node-desc').value;
+
+            if (!name || !type) {
+                alert('名称和类型不能为空');
+                return;
+            }
+
+            const url = nodeId ? `/api/node/${nodeId}` : '/api/node';
+            const method = nodeId ? 'PUT' : 'POST';
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, type, description })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    alert(result.message);
+                    // Update node in graph if it exists
+                    if (nodeId) {
+                        const updatedNode = {
+                            id: parseInt(nodeId),
+                            label: name,
+                            title: `<b>${name}</b><br>类型: ${type}<br>描述: ${description || 'N/A'}<br><br><i>双击展开/折叠</i>`,
+                            group: type,
+                            raw_data: { id: parseInt(nodeId), name, type, description }
+                        };
+                        allNodes.update(updatedNode);
+                    }
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                alert(`保存节点失败: ${error.message}`);
+            }
+        }
+
+        async function deleteNode() {
+            const nodeId = document.getElementById('node-id').value;
+            if (!nodeId) {
+                alert('请先选择一个节点');
+                return;
+            }
+            if (!confirm(`确定要删除ID为 ${nodeId} 的节点吗？`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/node/${nodeId}`, { method: 'DELETE' });
+                const result = await response.json();
+                if (response.ok) {
+                    alert(result.message);
+                    allNodes.remove(parseInt(nodeId));
+                    // Clear form
+                    document.getElementById('node-id').value = '';
+                    document.getElementById('node-name').value = '';
+                    document.getElementById('node-type').value = '';
+                    document.getElementById('node-desc').value = '';
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                alert(`删除节点失败: ${error.message}`);
+            }
+        }
+
+        function openTab(evt, tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            if (evt) {
+                evt.currentTarget.classList.add('active');
+            } else {
+                // Find the button that corresponds to the tabName and activate it
+                document.querySelector(`.tab-button[onclick*="'${tabName}'"]`).classList.add('active');
+            }
+        }
+
+        // Event Listeners
+        searchButton.addEventListener('click', performSearch);
+        document.getElementById('save-node-button').addEventListener('click', saveNode);
+        document.getElementById('delete-node-button').addEventListener('click', deleteNode);
+
+        // Slider value display
+        thresholdSlider.addEventListener('input', (e) => {
+            document.getElementById('threshold-value').textContent = parseFloat(e.target.value).toFixed(2);
+        });
+        nHopsSlider.addEventListener('input', (e) => {
+            document.getElementById('n-hops-value').textContent = e.target.value;
+        });
+        topKSlider.addEventListener('input', (e) => {
+            document.getElementById('top-k-value').textContent = e.target.value;
+        });
+
+        // Initial load
+        window.onload = initGraph;
+    </script>
+</body>
+</html>
